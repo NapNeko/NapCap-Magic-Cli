@@ -155,7 +155,7 @@ def main() -> None:
         # _echo("\n")
 
         # 启动 curses 应用
-        curses.wrapper(main)
+        curses.wrapper(chose_install_manner)
 
     # 开始安装
     if args.shell:
