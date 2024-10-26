@@ -49,12 +49,6 @@ def support_ansi() -> bool:
     """
     ## 检查当前终端是否支持 ANSI 颜色
     """
-    if WINDOWS:
-        return (
-                "ON" == os.getenv("ConEmuANSI")  # ConEmu and Cmder
-                or "xterm" == os.getenv("TERM")  # Cygwin/MSYS2
-        )
-
     if not hasattr(sys.stdout, "fileno"):
         # 如果没有文件描述符，则无法检查是否支持 ANSI 颜色
         return False
