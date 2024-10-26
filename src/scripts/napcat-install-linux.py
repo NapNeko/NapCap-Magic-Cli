@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 import argparse
+import dataclasses
 import io
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
-import urllib.request
-from pathlib import Path
 from enum import Enum
-import dataclasses
+from pathlib import Path
 
 # 检查 Python 版本是否符合要求, 如果低于版本 3.8 则退出
 if sys.version_info < (3, 9):
@@ -59,6 +59,8 @@ FOREGROUND_COLORS = {
     "cyan": 36,
     "white": 37,
     "pink": 35,
+    "gray": 90,
+    "dark_gray": 40,
 }
 
 # 定义终端输出 NapCat Install Logo
@@ -112,7 +114,7 @@ def colored(color: str, text: str, bold: bool = False) -> str:
     return "\x1b[{}m{}\x1b[0m".format(";".join(map(str, codes)), text)
 
 
-def _call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, bytes, bytes]:
+def call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, bytes, bytes]:
     """
     ## 调用子进程执行命令
     """
@@ -125,12 +127,44 @@ def _call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, b
         sys.exit(e.returncode)
 
 
+def curl_subprocess(args: list[str], task_name: str) -> subprocess.Popen:
+    """
+    ## 调用子进程执行 curl 命令
+    """
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+
+    for line in process.stderr:
+        if match := re.search(r'(\d+(\.\d+)?)%', line):
+            # 计算进度
+            arrow = '>' * int(round((float(match.group(1)) / 100.0) * 60) - 1)
+            spaces = '-' * (60 - len(arrow) - 3)
+            # 打印进度条
+            sys.stdout.write(
+                f"\r  > 正在下载 {task_name} "
+                f"{colored('green', '[')}"
+                f"{colored('green', arrow)}"
+                f"{spaces}"
+                f"{colored('green', ']')} "
+                f"{match.group(1)}%"
+            )
+            sys.stdout.flush()
+    # 等待进程完成
+    process.wait()
+
+    # 删除进度条, 打印完成信息
+    sys.stdout.write("\r" + " " * 100 + "\r")
+    _echo(colored('green', f"√ {task_name} 下载完成"))
+
+    return process
+
+
 @dataclasses.dataclass
 class QQ:
     """
     ## QQ 相关功能
     """
     qq_download_url: str = None
+    qq_remote_version: str = None
     package_installer: PackInstaller = None
     package_manager: PackManager = None
 
@@ -149,6 +183,17 @@ class QQ:
         """
         ## 下载 QQ
         """
+        # 清空终端, 输出 NapCat Logo
+        os.system('clear')
+        _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+        _echo(
+            f"正在安装 QQ "
+            f"[{colored('yellow', self.qq_remote_version)}] "
+        )
+        _echo("\n")
+        _echo(colored('green', f"√ 检测到系统包管理器: {self.package_manager}"))
+        _echo(colored('green', f"√ 检测到软件包安装器: {self.package_installer}"))
+
         # 设置下载链接
         self.set_download_qq_url()
 
@@ -156,13 +201,13 @@ class QQ:
         match self.package_installer:
             # 匹配包安装器
             case PackInstaller.RPM:
-                download_args = ['sudo', 'curl', '-L', self.qq_download_url, '-o', 'QQ.rpm']
-                install_args = ['sudo', 'yum', 'localinstall', '-y', './QQ.rpm']
+                download_args = ['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.rpm']
+                install_args = ['yum', 'localinstall', '-y', './QQ.rpm']
                 install_file_name = 'QQ.rpm'
 
             case PackInstaller.DPKG:
-                download_args = ['sudo', 'curl', '-L', self.qq_download_url, '-o', 'QQ.deb']
-                install_args = ['sudo', 'apt', 'install', '-f', '-y', './QQ.deb', 'libnss3', 'libgbm1', 'libasound2']
+                download_args = ['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.deb']
+                install_args = ['apt', 'install', '-f', '-y', './QQ.deb', 'libnss3', 'libgbm1', 'libasound2']
                 install_file_name = 'QQ.deb'
 
             case _:
@@ -170,14 +215,13 @@ class QQ:
                 sys.exit(1)
 
         # 执行下载安装任务
-        if _call_subprocess(download_args).returncode != 0:
+        if curl_subprocess(download_args, "QQ").returncode != 0:
             _echo(colored('red', "下载 QQ 失败"))
             sys.exit(1)
 
-        if _call_subprocess(install_args).returncode != 0:
-            _echo(colored('red', "安装 QQ 失败"))
-            sys.exit(1)
-
+        # if call_subprocess(install_args).returncode != 0:
+        #     _echo(colored('red', "安装 QQ 失败"))
+        #     sys.exit(1)
 
 
 class ShellInstall:
@@ -211,10 +255,10 @@ class ShellInstall:
         qq = QQ(
             package_installer=self.package_installer,
             package_manager=self.package_manager,
-            qq_download_url=self.qq_download_url
+            qq_download_url=self.qq_download_url,
+            qq_remote_version=self.qq_remote_version
         )
         qq.install()
-
 
     def get_remote_version(self) -> None:
         """
@@ -222,7 +266,7 @@ class ShellInstall:
         """
 
         # 获取 NapCat 相关内容
-        if (napcat := _call_subprocess(['curl', '-s', 'https://nclatest.znin.net/'])).returncode != 0:
+        if (napcat := call_subprocess(['curl', '-s', 'https://nclatest.znin.net/'])).returncode != 0:
             _echo(colored('red', "获取 NapCat 版本失败"))
             print(napcat)
             exit(1)
@@ -230,7 +274,7 @@ class ShellInstall:
         self.napcat_remote_version = json.loads(napcat.stdout.decode().strip())["tag_name"]
 
         # 获取 QQ 相关内容
-        if (qq := _call_subprocess(['curl', '-s', 'https://nclatest.znin.net/get_qq_ver'])).returncode != 0:
+        if (qq := call_subprocess(['curl', '-s', 'https://nclatest.znin.net/get_qq_ver'])).returncode != 0:
             _echo(colored('red', "获取 QQ 版本失败"))
             exit(1)
 
@@ -243,9 +287,9 @@ class ShellInstall:
         """
         ## 检测系统包管理器
         """
-        if _call_subprocess(['which', 'apt-get']).returncode == 0:
+        if call_subprocess(['which', 'apt-get']).returncode == 0:
             self.package_manager = PackManager.APT_GET
-        elif _call_subprocess(['which', 'yum']).returncode == 0:
+        elif call_subprocess(['which', 'yum']).returncode == 0:
             self.package_manager = PackManager.YUM
         else:
             _echo(colored('red', "未检测到系统包管理器"))
@@ -257,9 +301,9 @@ class ShellInstall:
         """
         ## 检测软件包安装器
         """
-        if _call_subprocess(['which', 'dpkg']).returncode == 0:
+        if call_subprocess(['which', 'dpkg']).returncode == 0:
             self.package_installer = PackInstaller.DPKG
-        elif _call_subprocess(['which', 'rpm']).returncode == 0:
+        elif call_subprocess(['which', 'rpm']).returncode == 0:
             self.package_installer = PackInstaller.RPM
         else:
             _echo(colored('red', "未检测到包安装器"))
@@ -294,8 +338,9 @@ def main() -> None:
     if not (args := parser.parse_args()).shell and not args.docker:
         # # 当用户没有指定安装方式时, 让用户选择安装方式
         _echo(colored('yellow', "未检测到安装方式参数传入, 请手动选择安装方式\n"))
-        _echo("{:<10}  适用于全平台\n".format("  > shell"))
-        _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
+        _echo("  > shell")
+        _echo("  > docker")
+        _echo("")
 
         if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() == 'docker':
             args.docker = True
