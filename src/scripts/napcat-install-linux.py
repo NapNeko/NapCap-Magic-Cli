@@ -151,9 +151,10 @@ def curl_subprocess(args: list[str], task_name: str) -> subprocess.Popen:
     # 等待进程完成
     process.wait()
 
-    # 删除进度条, 打印完成信息
-    sys.stdout.write("\r" + " " * 100 + "\r")
-    _echo(colored('green', f"√ {task_name} 下载完成"))
+    if process.returncode == 0:
+        # 删除进度条, 打印完成信息
+        sys.stdout.write("\r" + " " * 100 + "\r")
+        _echo(colored('green', f"√ {task_name} 下载完成"))
 
     return process
 
@@ -215,8 +216,10 @@ class QQ:
                 sys.exit(1)
 
         # 执行下载安装任务
-        if curl_subprocess(download_args, "QQ").returncode != 0:
-            _echo(colored('red', "下载 QQ 失败"))
+        if (process := curl_subprocess(download_args, "QQ")).returncode != 0:
+            _echo(colored('red', f"\n下载 QQ 失败:\n"))
+            _echo(colored('red', f"   > Error Code   :   {process.returncode}"))
+            _echo(colored('red', f"   > Download Url :   {self.qq_download_url}"))
             sys.exit(1)
 
         # if call_subprocess(install_args).returncode != 0:
