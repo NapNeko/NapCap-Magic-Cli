@@ -5,6 +5,7 @@ import platform
 import subprocess
 import sys
 import argparse
+import curses
 from pathlib import Path
 
 # 检查 Python 版本是否符合要求, 如果低于版本 3.8 则退出
@@ -78,28 +79,58 @@ def colored(color: str, text: str, bold: bool = False) -> str:
     return "\x1b[{}m{}\x1b[0m".format(";".join(map(str, codes)), text)
 
 
-def clear_terminal() -> None:
-    # 根据不同的操作系统选择清屏命令
-    os.system('clear')
-
-
-def check_admin() -> None:
+def chose_install_manner(stdscr) -> None:
     """
-    ## 检查当前用户是否有管理员权限
+    ## 选择安装方式
     """
-    if os.geteuid() != 0:
-        sys.exit("请以 root 用户运行此安装程序!")
+    # 清空屏幕
+    stdscr.clear()
+
+    # 定义选项
+    options = [
+        "shell: 适用于全平台",
+        "docker: 适用于 Linux 系统"
+    ]
+
+    current_selection = 0  # 当前选择的索引
+
+    while True:
+        # 显示选项
+        for idx, option in enumerate(options):
+            if idx == current_selection:
+                # 高亮显示当前选择
+                stdscr.addstr(idx, 0, option, curses.A_REVERSE)
+            else:
+                stdscr.addstr(idx, 0, option)
+
+        # 刷新屏幕
+        stdscr.refresh()
+
+        # 获取用户输入
+        key = stdscr.getch()
+
+        if key == curses.KEY_UP and current_selection > 0:
+            current_selection -= 1
+        elif key == curses.KEY_DOWN and current_selection < len(options) - 1:
+            current_selection += 1
+        elif key == curses.KEY_ENTER or key in [10, 13]:
+            # 用户按下回车键
+            break
+
+    # 清空屏幕，显示选择结果
+    stdscr.clear()
+    stdscr.addstr(0, 0, f"您选择了: {options[current_selection]}")
+    stdscr.refresh()
+    stdscr.getch()  # 等待用户按键以结束程序
 
 
 def main() -> None:
     """
     ## 程序主入口
     """
-    # 判断是否未 Administrator 或 root 用户
-    check_admin()
 
     # 清空终端, 输出 NapCat Logo
-    clear_terminal()
+    os.system('clear')
     _echo(colored("pink", LOGO))  # 输出 NapCat Logo
     _echo(colored("green", "欢迎使用 NapCat 安装程序!"))
     _echo("\n")
@@ -111,17 +142,20 @@ def main() -> None:
     group.add_argument('-d', '--docker', action='store_true', help='使用 Docker 安装')
 
     if not (args := parser.parse_args()).shell and not args.docker:
-        # 当用户没有指定安装方式时, 让用户选择安装方式
-        _echo(colored('yellow', "未检测到安装方式参数传入, 请手动选择安装方式\n"))
-        _echo("{:<10}  适用于全平台\n".format("  > shell"))
-        _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
+        # # 当用户没有指定安装方式时, 让用户选择安装方式
+        # _echo(colored('yellow', "未检测到安装方式参数传入, 请手动选择安装方式\n"))
+        # _echo("{:<10}  适用于全平台\n".format("  > shell"))
+        # _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
+        #
+        # if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() or 'shell' == 'docker':
+        #     args.docker = True
+        # else:
+        #     args.shell = True
+        #
+        # _echo("\n")
 
-        if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() or 'shell' == 'docker':
-            args.docker = True
-        else:
-            args.shell = True
-
-        _echo("\n")
+        # 启动 curses 应用
+        curses.wrapper(main)
 
     # 开始安装
     if args.shell:
