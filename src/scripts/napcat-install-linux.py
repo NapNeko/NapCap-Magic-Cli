@@ -12,11 +12,7 @@ if sys.version_info < (3, 9):
     sys.exit("安装 NapCat 需要 Python 3.9 或更高版本")
 
 # 获取当前系统信息
-plat = platform.system()
 arch = platform.machine()
-
-MACOS = plat == 'Darwin'  # 检查是否是 macOS 系统
-WINDOWS = plat == 'Windows'  # 检查是否是 Windows 系统
 
 # 定义 ANSI 终端前景色的 ANSI 码
 FOREGROUND_COLORS = {
@@ -55,9 +51,7 @@ def support_ansi() -> bool:
     """
     if WINDOWS:
         return (
-                os.getenv("ANSICON") is not None  # Windows 10
-                or os.getenv("WT_SESSION") is not None  # Windows Terminal
-                or "ON" == os.getenv("ConEmuANSI")  # ConEmu and Cmder
+                "ON" == os.getenv("ConEmuANSI")  # ConEmu and Cmder
                 or "xterm" == os.getenv("TERM")  # Cygwin/MSYS2
         )
 
@@ -92,21 +86,14 @@ def colored(color: str, text: str, bold: bool = False) -> str:
 
 def clear_terminal() -> None:
     # 根据不同的操作系统选择清屏命令
-    if WINDOWS:
-        os.system('cls')
-    else:
-        os.system('clear')
+    os.system('clear')
 
 
 def check_admin() -> None:
     """
     ## 检查当前用户是否有管理员权限
     """
-    if WINDOWS and not ctypes.windll.shell32.IsUserAnAdmin():
-        sys.exit("请以管理员权限运行此安装程序!")
-
-    # 检查 Linux 和 macOS 系统
-    if not WINDOWS and os.geteuid() != 0:
+    if os.geteuid() != 0:
         sys.exit("请以 root 用户运行此安装程序!")
 
 
