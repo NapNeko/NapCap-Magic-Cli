@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import argparse
 import io
+import json
 import os
 import platform
 import subprocess
 import sys
-import argparse
-import curses
+import urllib.request
 from pathlib import Path
 
 # 检查 Python 版本是否符合要求, 如果低于版本 3.8 则退出
@@ -29,13 +30,13 @@ FOREGROUND_COLORS = {
 }
 
 # 定义终端输出 NapCat Install Logo
-LOGO = '''\n\n\n
-███╗   ██╗  █████╗  ██████╗   ██████╗  █████╗  ████████╗
-████╗  ██║ ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ╚══██╔══╝
-██╔██╗ ██║ ███████║ ██████╔╝ ██║      ███████║    ██║   
-██║╚██╗██║ ██╔══██║ ██╔═══╝  ██║      ██╔══██║    ██║   
-██║ ╚████║ ██║  ██║ ██║      ╚██████╗ ██║  ██║    ██║   
-╚═╝  ╚═══╝ ╚═╝  ╚═╝ ╚═╝       ╚═════╝ ╚═╝  ╚═╝    ╚═╝   \n\n\n
+LOGO = '''\n\n
+    ███╗   ██╗  █████╗  ██████╗   ██████╗  █████╗  ████████╗
+    ████╗  ██║ ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ╚══██╔══╝
+    ██╔██╗ ██║ ███████║ ██████╔╝ ██║      ███████║    ██║   
+    ██║╚██╗██║ ██╔══██║ ██╔═══╝  ██║      ██╔══██║    ██║   
+    ██║ ╚████║ ██║  ██║ ██║      ╚██████╗ ██║  ██║    ██║   
+    ╚═╝  ╚═══╝ ╚═╝  ╚═╝ ╚═╝       ╚═════╝ ╚═╝  ╚═╝    ╚═╝   \n\n\n
 '''
 
 
@@ -79,46 +80,105 @@ def colored(color: str, text: str, bold: bool = False) -> str:
     return "\x1b[{}m{}\x1b[0m".format(";".join(map(str, codes)), text)
 
 
-def chose_install_manner(stdscr) -> None:
+def _call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, bytes, bytes]:
     """
-    ## 选择安装方式
+    ## 调用子进程执行命令
     """
-    # 清空终端, 输出 NapCat Logo
-    stdscr.clear()
-    _echo(colored("pink", LOGO))  # 输出 NapCat Logo
-    _echo(colored("green", "欢迎使用 NapCat 安装程序!"))
-    _echo("\n")
+    try:
+        # 执行命令
+        return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+    except subprocess.CalledProcessError as e:
+        # 如果执行命令时发生错误，则输出错误信息并退出
+        _echo(colored("red", f"执行以下命令时引发错误{args}"))
+        sys.exit(e.returncode)
 
-    current_selection = 0  # 当前选择的索引
 
-    while True:
-        # 显示选项
-        for idx, option in enumerate(["  > shell","  > docker"]):
-            if idx == current_selection:
-                # 高亮显示当前选择
-                stdscr.addstr(idx, 0, option, curses.A_REVERSE)
-            else:
-                stdscr.addstr(idx, 0, option)
+class ShellInstall:
+    """
+    ## Shell 方式安装
+    """
 
-        # 刷新屏幕
-        stdscr.refresh()
+    def __init__(self):
+        # 定义路径
+        self.base_path = Path().cwd()
 
-        # 获取用户输入
-        key = stdscr.getch()
+        # 拉版本
+        self.ger_remote_version()
 
-        if key == curses.KEY_UP and current_selection > 0:
-            current_selection -= 1
-        elif key == curses.KEY_DOWN and current_selection < len(options) - 1:
-            current_selection += 1
-        elif key == curses.KEY_ENTER or key in [10, 13]:
-            # 用户按下回车键
-            break
+        # 清空终端, 输出 NapCat Logo
+        os.system('clear')
+        _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+        _echo("正在安装 NapCat [{}] ({})".format(
+            colored('yellow', self.napcat_remote_version), colored("green", "Shell")
+        ))
+        _echo("\n")
 
-    # 清空屏幕，显示选择结果
-    stdscr.clear()
-    stdscr.addstr(0, 0, f"您选择了: {options[current_selection]}")
-    stdscr.refresh()
-    stdscr.getch()  # 等待用户按键以结束程序
+        # 基础功能检测
+        self.detect_package_manager()
+        self.detect_package_installer()
+
+    def install_qq(self) -> None:
+        """
+        ## 安装 QQ
+        """
+        ...
+
+    def ger_remote_version(self):
+        """
+        ## 获取一些列远程版本
+        """
+
+        # 获取 NapCat 相关内容
+        if (napcat := _call_subprocess(['curl', '-s', 'https://nclatest.znin.net/'])).returncode != 0:
+            _echo(colored('red', "获取 NapCat 版本失败"))
+            print(napcat)
+            exit(1)
+
+        self.napcat_remote_version = json.loads(napcat.stdout.decode().strip())["tag_name"]
+
+        # 获取 QQ 相关内容
+        if (qq := _call_subprocess(['curl', '-s', 'https://nclatest.znin.net/get_qq_ver'])).returncode != 0:
+            _echo(colored('red', "获取 QQ 版本失败"))
+            exit(1)
+
+        data = json.loads(qq.stdout.decode().strip())
+        self.qq_remote_version = data["linuxVersion"]
+        self.qq_download_url = \
+            f"https://dldir1.qq.com/qqfile/qq/QQNT/{data['linuxVerHash']}/linuxqq_{self.qq_remote_version}"
+
+    def detect_package_manager(self) -> None:
+        """
+        ## 检测系统包管理器
+        """
+        if _call_subprocess(['which', 'apt-get']).returncode == 0:
+            self.package_manager = 'apt'
+        elif _call_subprocess(['which', 'yum']).returncode == 0:
+            self.package_manager = 'yum'
+        else:
+            _echo(colored('red', "未检测到系统包管理器"))
+            sys.exit(1)
+
+        _echo(colored('green', f"√ 检测到系统包管理器: {self.package_manager}"))
+
+    def detect_package_installer(self) -> None:
+        """
+        ## 检测软件包安装器
+        """
+        if _call_subprocess(['which', 'dpkg']).returncode == 0:
+            self.package_installer = 'apt-get'
+        elif _call_subprocess(['which', 'rpm']).returncode == 0:
+            self.package_installer = 'yum'
+        else:
+            _echo(colored('red', "未检测到包安装器"))
+            sys.exit(1)
+
+        _echo(colored('green', f"√ 检测到软件包安装器: {self.package_installer}"))
+
+
+class DockerInstall:
+    """
+    ## Docker 方式安装
+    """
 
 
 def main() -> None:
@@ -128,8 +188,8 @@ def main() -> None:
 
     # 清空终端, 输出 NapCat Logo
     os.system('clear')
-    _echo(colored("pink", LOGO))  # 输出 NapCat Logo
-    _echo(colored("green", "欢迎使用 NapCat 安装程序!"))
+    _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+    _echo(colored("green", "欢迎使用 NapCat 安装程序!", bold=True))
     _echo("\n")
 
     # 解析参数
@@ -144,20 +204,17 @@ def main() -> None:
         _echo("{:<10}  适用于全平台\n".format("  > shell"))
         _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
 
-        if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() or 'shell' == 'docker':
+        if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() == 'docker':
             args.docker = True
         else:
             args.shell = True
 
         _echo("\n")
 
-        # 启动 curses 应用
-        curses.wrapper(chose_install_manner)
-
     # 开始安装
     if args.shell:
         # 使用 shell 安装
-        _echo(colored('green', "开始使用 shell 安装 NapCat"))
+        shell_install = ShellInstall()
     elif args.docker:
         # 使用 Docker 安装
         _echo(colored('green', "开始使用 Docker 安装 NapCat"))
