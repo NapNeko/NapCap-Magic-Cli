@@ -83,20 +83,17 @@ def chose_install_manner(stdscr) -> None:
     """
     ## 选择安装方式
     """
-    # 清空屏幕
+    # 清空终端, 输出 NapCat Logo
     stdscr.clear()
-
-    # 定义选项
-    options = [
-        "shell: 适用于全平台",
-        "docker: 适用于 Linux 系统"
-    ]
+    _echo(colored("pink", LOGO))  # 输出 NapCat Logo
+    _echo(colored("green", "欢迎使用 NapCat 安装程序!"))
+    _echo("\n")
 
     current_selection = 0  # 当前选择的索引
 
     while True:
         # 显示选项
-        for idx, option in enumerate(options):
+        for idx, option in enumerate(["  > shell","  > docker"]):
             if idx == current_selection:
                 # 高亮显示当前选择
                 stdscr.addstr(idx, 0, option, curses.A_REVERSE)
@@ -143,16 +140,16 @@ def main() -> None:
 
     if not (args := parser.parse_args()).shell and not args.docker:
         # # 当用户没有指定安装方式时, 让用户选择安装方式
-        # _echo(colored('yellow', "未检测到安装方式参数传入, 请手动选择安装方式\n"))
-        # _echo("{:<10}  适用于全平台\n".format("  > shell"))
-        # _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
-        #
-        # if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() or 'shell' == 'docker':
-        #     args.docker = True
-        # else:
-        #     args.shell = True
-        #
-        # _echo("\n")
+        _echo(colored('yellow', "未检测到安装方式参数传入, 请手动选择安装方式\n"))
+        _echo("{:<10}  适用于全平台\n".format("  > shell"))
+        _echo("{:<10}  适用于 Linux 系统\n".format("  > docker"))
+
+        if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() or 'shell' == 'docker':
+            args.docker = True
+        else:
+            args.shell = True
+
+        _echo("\n")
 
         # 启动 curses 应用
         curses.wrapper(chose_install_manner)
