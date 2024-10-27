@@ -308,7 +308,7 @@ class QQ:
         os.system("clear")
         _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
         _echo(f"正在安装 QQ " f"[{colored('yellow', self.qq_remote_version)}] ")
-        _echo("\n")
+        _echo("")
         _echo(colored("green", f"√ 检测到系统包管理器: {self.package_manager}"))
         _echo(colored("green", f"√ 检测到软件包安装器: {self.package_installer}"))
 
@@ -370,7 +370,7 @@ class ShellInstall:
         _echo(
             "正在安装 NapCat [{}] ({})".format(colored("yellow", self.napcat_remote_version), colored("green", "Shell"))
         )
-        _echo("\n")
+        _echo("")
 
         # 基础功能检测
         self.detect_package_manager()
@@ -386,7 +386,7 @@ class ShellInstall:
             qq_download_url=self.qq_download_url,
             qq_remote_version=self.qq_remote_version,
         )
-        qq.check_installed()
+        qq.install()
 
     def get_remote_version(self) -> None:
         """
@@ -483,8 +483,8 @@ def select_install_method(stdscr) -> argparse.Namespace:
 
     # 根据选择设置 args
     args = argparse.Namespace()
-    args.shell = options[current_row] == "Shell\n"
-    args.docker = options[current_row] == "Docker\n"
+    args.shell = options[current_row] == options[0].replace("   >>> ", "")
+    args.docker = options[current_row] == options[1].replace("   >>> ", "")
     return args
 
 
