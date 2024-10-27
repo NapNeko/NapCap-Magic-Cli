@@ -7,6 +7,7 @@ import sys
 import json
 import time
 import curses
+import zipfile
 import argparse
 import platform
 import subprocess
@@ -140,18 +141,27 @@ def call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, by
         return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
     except subprocess.CalledProcessError as e:
         # 如果执行命令时发生错误，则输出错误信息并退出
-        _echo(colored("red", f"执行以下命令时引发错误{args}"))
+        _echo(colored("red", f"\n× 执行指令失败:\n"))
+        _echo(colored("red", f"   > Error Code   :   {e.returncode}"))
+        _echo(colored("red", f"   > Command      :   {' '.join(args)}"))
+        _echo(colored("red", f"   > Stdout       :   {e.stdout}"))
+        _echo(colored("red", f"   > Stderr       :   {e.stderr}"))
         sys.exit(e.returncode)
 
 
-def curl_subprocess(args: list[str], task_name: str) -> None:
+def curl_subprocess(
+    args: list[str], task_name: str, error_exit: bool = True, err_echo: bool = True
+) -> subprocess.Popen:
     """
     ## 调用子进程执行 curl 命令
     """
-    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     # 计算进度条最大长度
     max_length = 80 - len(f"  > 正在执行 {task_name} ") * 2
+
+    # 防止链接中没有任何内容输出, 打印一个假进度条
+    _echo(f"\r  > 正在执行 {task_name} [{'-' * max_length}]{0.0}%", end=False)
 
     for line in process.stderr:
         if match := re.search(r"(\d+(\.\d+)?)%", line):
@@ -168,12 +178,23 @@ def curl_subprocess(args: list[str], task_name: str) -> None:
         # 删除进度条, 打印完成信息
         sys.stdout.write("\r" + " " * 80 + "\r")
         _echo(colored("green", f"√ 任务 {task_name} 完成"))
-    else:
+    elif process.returncode != 0 and err_echo:
         # 删除进度条, 打印错误信息
-        _echo(colored("red", f"\n下载 {task_name} 失败:\n"))
+        sys.stdout.write("\r" + " " * 80 + "\r")
+        _echo(colored("red", f"\n× 任务 {task_name} 失败:\n"))
         _echo(colored("red", f"   > Error Code   :   {process.returncode}"))
-        _echo(colored("red", f"   > Download Url :   {args[3]}"))
+        _echo(colored("red", f"   > Command      :   {' '.join(args)}"))
+        _echo(colored("red", f"   > Stdout       :   {process.stdout.read()}"))
+        _echo(colored("red", f"   > Stderr       :   {process.stderr.read()}"))
+
+    # 如果不打印错误信息则清空进度条
+    sys.stdout.write("\r" + " " * 80 + "\r")
+
+    # 如果需要退出, 则退出
+    if error_exit and process.returncode != 0:
         exit(1)
+    else:
+        return process
 
 
 def long_time_subprocess(
@@ -254,6 +275,7 @@ class QQ:
 
     qq_download_url: str = None
     qq_remote_version: str = None
+    qq_remote_hash: str = None
     qq_local_version: str = None
     package_installer: PackInstaller = None
     package_manager: PackManager = None
@@ -277,9 +299,12 @@ class QQ:
             # 如果获取不到 本地版本 则直接执行安装 QQ 任务
             self.install()
 
-        if self.qq_local_version != self.qq_remote_version:
+        elif self.qq_local_version != self.qq_remote_version:
             # 如果本地版本和远程版本不一致, 则执行更新任务
             self.install()
+
+        # 来都来了,更新一下config吧~
+        self.update_linuxqq_config()
 
     def get_local_version(self) -> bool:
         """
@@ -304,9 +329,7 @@ class QQ:
         """
         ## 下载 QQ
         """
-        # 清空终端, 输出 NapCat Logo
-        os.system("clear")
-        _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+        _echo_logo()  # 输出 NapCat Logo
         _echo(f"正在安装 QQ " f"[{colored('yellow', self.qq_remote_version)}] ")
         _echo("")
         _echo(colored("green", f"√ 检测到系统包管理器: {self.package_manager}"))
@@ -335,6 +358,7 @@ class QQ:
             long_time_subprocess(["apt-get", "install", "-f", "-y", "./QQ.deb"], "安装QQ")
             long_time_subprocess(["apt-get", "install", "-y", "libnss3"], "安装依赖[libnss3]")
             long_time_subprocess(["apt-get", "install", "-y", "libgbm1"], "安装依赖[libgbm1]")
+            long_time_subprocess(["apt-get", "install", "-y", "xvfb"], "安装依赖[xvfb]")
 
             # 以下操作是为了解决 libasound2 依赖问题
             args = ["apt-get", "install", "-y", "libasound2"]
@@ -351,6 +375,24 @@ class QQ:
             _echo(colored("red", "未知的包安装器"))
             sys.exit(1)
 
+    def update_linuxqq_config(self) -> None:
+        """
+        ## 更新 LinuxQQ 配置
+        """
+        find_args = ["find", "/home", "-name", "config.json", "-path", "*/.config/QQ/versions/*"]
+        configs_list = subprocess.check_output(find_args).decode().split()
+        if (config_path := Path("/root/.config/QQ/versions/config.json")).exists():
+            configs_list.append(str(config_path))
+
+        for config in configs_list:
+            with open(config, "r") as file:
+                data = json.load(file)
+                data["baseVersion"] = self.qq_remote_version
+                data["curVersion"] = self.qq_remote_version
+                data["buildId"] = self.qq_remote_hash
+            with open(config, "w") as file:
+                json.dump(data, file, indent=4)
+
 
 class ShellInstall:
     """
@@ -359,14 +401,28 @@ class ShellInstall:
 
     def __init__(self):
         # 定义路径
-        self.base_path = Path().cwd()
+        self.base_path: Path = Path().cwd()
+        self.qq_install_path: Path = Path("/opt/QQ")
+        self.napcat_install_path: Path = self.qq_install_path / "resources" / "app" / "app_launcher" / "NapCat"
+        self.package_path: Path = self.qq_install_path / "resources" / "app" / "package.json"
 
         # 拉远程版本
         self.get_remote_version()
 
+        # 定义代理列表
+        self.proxy_list = [
+            "https://slink.ltd/",
+            "https://hub.gitmirror.com/",
+            "https://gh.ddlc.top/",
+            "https://cors.isteed.cc/",
+            "https://ghproxy.cc/",
+            "https://github.moeyy.xyz/",
+        ]
+        # 定义 NapCat 下载链接
+        self.napcat_download_url = "https://github.com/NapNeko/NapCatQQ/releases/latest/download/NapCat.Shell.zip"
+
         # 清空终端, 输出 NapCat Logo
-        os.system("clear")
-        _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+        _echo_logo()  # 输出 NapCat Logo
         _echo(
             "正在安装 NapCat [{}] ({})".format(colored("yellow", self.napcat_remote_version), colored("green", "Shell"))
         )
@@ -385,8 +441,122 @@ class ShellInstall:
             package_manager=self.package_manager,
             qq_download_url=self.qq_download_url,
             qq_remote_version=self.qq_remote_version,
+            qq_remote_hash=self.qq_remote_hash,
         )
-        qq.install()
+        qq.check_installed()
+
+    def check_napcat(self) -> None:
+        """
+        ## 检查是否安装过 NapCat
+        """
+        _echo_logo()  # 输出 NapCat Logo
+        _echo(f"正在安装 NapCat " f"[{colored('yellow', self.napcat_remote_version)}] ")
+        _echo("")
+        _echo(colored("green", f"√ 检测到系统包管理器: {self.package_manager}"))
+        _echo(colored("green", f"√ 检测到软件包安装器: {self.package_installer}"))
+
+        # 检查是否安装过 NapCat
+        if not self.napcat_install_path.exists():
+            self.download_napcat()
+            self.install_napcat()
+            return
+
+        if self.napcat_remote_version != self.get_local_version():
+            self.download_napcat()
+            self.install_napcat()
+
+        else:
+            _echo(colored("green", f"√ 检测到 NapCat 已安装且为最新版本[{self.napcat_remote_version}]"))
+
+    def install_napcat(self) -> None:
+        """
+        ## 安装 NapCat
+        """
+        # 检查安装目录是否存在
+        if not self.napcat_install_path.exists():
+            # 如果不存在则创建
+            self.napcat_install_path.mkdir()
+        else:
+            # 如果存在则代表只是更新, 删除除了 config 以外的所有
+            for file in self.napcat_install_path.iterdir():
+                if file.name != "config":
+                    call_subprocess(["rm", "-rf", file])
+
+        # 解压 NapCat
+        with zipfile.ZipFile(f"{self.base_path}/NapCat.zip", "r") as zip_ref:
+            zip_ref.extractall(str(self.napcat_install_path))
+        _echo(colored("green", "√ 解压 NapCat 完成"))
+
+        # 设置NapCat权限
+        for item in self.napcat_install_path.rglob("*"):
+            item.chmod(0o777)
+
+        # 设置QQ权限
+        for item in self.qq_install_path.rglob("*"):
+            item.chmod(0o777)
+
+        # 写入 loadNapCat.js
+        with open(self.napcat_install_path.parent.parent / "loadNapCat.js", "w") as file:
+            file.write(f"(async () => {{await import('file:///{self.napcat_install_path}/napcat.mjs');}})();")
+
+        # 移除文件
+        Path(self.base_path / "NapCat.zip").unlink()
+
+        # 修改 QQ package.json
+        with open(self.package_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        # 修改数据
+        data["main"] = "loadNapCat.js"
+
+        # 写入修改后的数据
+        with open(self.package_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+
+        # 安装完成, 输出信息
+        _echo_logo()
+        _echo(f"安装成功 NapCat " f"[{colored('yellow', self.napcat_remote_version)}] ")
+        _echo("")
+        _echo("安装完成，请输入 xvfb-run -a qq --no-sandbox 命令启动")
+        _echo("保持后台运行 请输入 screen -dmS napcat bash -c xvfb-run -a qq --no-sandbox")
+        _echo("后台快速登录 请输入 screen -dmS napcat bash -c xvfb-run -a qq --no-sandbox -q QQ号码")
+        _echo(f"NapCat 安装位置 {self.napcat_install_path}")
+        _echo("PS: 您可以随时使用screen -r napcat来进入后台进程并使用ctrl + a + d离开(离开不会关闭后台进程)")
+
+    def download_napcat(self) -> None:
+        """
+        ## 下载 NapCat
+        """
+        args = [
+            "curl",  # 使用 curl 命令
+            "-L",  # 跟随重定向
+            "-#",  # 显示进度条
+            "--connect-timeout",  # 连接超时时间
+            "5",  # 5 秒
+            self.napcat_download_url,  # 下载链接
+            "-o",  # 输出文件
+            f"{self.base_path}/NapCat.zip",  # 输出文件路径
+        ]
+        if curl_subprocess(args, "下载NapCat", False, False).returncode != 0:
+            # 如果下载失败, 则尝试使用代理下载
+            for proxy in self.proxy_list:
+                args[5] = proxy + self.napcat_download_url
+                if curl_subprocess(args, f"重试下载NapCat[代理]", False, False).returncode == 0:
+                    return
+            else:
+                _echo(colored("red", "× 下载 NapCat 失败"))
+                exit(1)
+
+    def get_local_version(self) -> None:
+        """
+        ## 获取本地版本
+        """
+        if not self.napcat_install_path.exists():
+            return None
+
+        # 获取本地版本
+        with open(self.napcat_install_path / "package.json", "r") as file:
+            return "v" + json.load(file)["version"]
 
     def get_remote_version(self) -> None:
         """
@@ -408,6 +578,7 @@ class ShellInstall:
 
         data = json.loads(qq.stdout.decode().strip())
         self.qq_remote_version = data["linuxVersion"]
+        self.qq_remote_hash = data["linuxVerHash"]
         self.qq_download_url = (
             f"https://dldir1.qq.com/qqfile/qq/QQNT/{data['linuxVerHash']}/linuxqq_{self.qq_remote_version}"
         )
@@ -515,6 +686,7 @@ def main() -> None:
         # 使用 shell 安装
         shell_install = ShellInstall()
         shell_install.install_qq()
+        shell_install.check_napcat()
     elif args.docker:
         # 使用 Docker 安装
         _echo(colored("green", "开始使用 Docker 安装 NapCat"))
