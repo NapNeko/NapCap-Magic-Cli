@@ -8,6 +8,7 @@ import platform
 import re
 import subprocess
 import sys
+import time
 from enum import Enum
 from pathlib import Path
 
@@ -135,8 +136,10 @@ def curl_subprocess(args: list[str], task_name: str) -> None:
 
     for line in process.stderr:
         if match := re.search(r'(\d+(\.\d+)?)%', line):
-            # 计算进度条
-            bar = f"[{'>' * int(round((float(match.group(1)) / 100.0) * 60) - 1)}{'-' * (60 - len(arrow) - 3)}]"
+            # 计算进度
+            arrow = '>' * int(round((float(match.group(1)) / 100.0) * 60) - 1)
+            spaces = '-' * (60 - len(arrow) - 3)
+            bar = f"[{arrow}{spaces}]"
             # 打印进度条
             _echo(f"\r  > 正在下载 {task_name} {bar}{match.group(1)}%", end=False)
     # 等待进程完成
@@ -160,7 +163,7 @@ def long_time_subprocess(args: list[str], task_name: str, error_exit: bool = Tru
     """
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    while not process.poll():
+    while process.poll():
         # 向右移动
         for position in range(1, 42 + 1):
             bar = '[' + '-' * (position - 1) + '<< < N A P C A T > >>' + '-' * (42 - position) + ']'
@@ -250,43 +253,41 @@ class QQ:
         # 设置下载链接
         self.set_download_qq_url()
 
-        # 定义下载安装参数
-        match self.package_installer:
-            # 匹配包安装器
-            case PackInstaller.RPM:
-                # 执行下载 QQ 任务
-                curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.rpm'], "QQ")
+        # 判断包安装器
+        if self.package_installer == PackInstaller.RPM:
+            # 执行下载 QQ 任务
+            curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.rpm'], "QQ")
 
-                # 执行安装 QQ 任务
-                long_time_subprocess(['yum', 'localinstall', '-y', './QQ.rpm'], "安装QQ")
+            # 执行安装 QQ 任务
+            long_time_subprocess(['yum', 'localinstall', '-y', './QQ.rpm'], "安装QQ")
 
-                # 移除安装包
-                if call_subprocess(['rm', '-f', 'QQ.rpm']).returncode:
-                    _echo(colored('yello', "× 删除安装包失败, 请手动删除"))
+            # 移除安装包
+            if call_subprocess(['rm', '-f', 'QQ.rpm']).returncode:
+                _echo(colored('yellow', "× 删除安装包失败, 请手动删除"))
 
-            case PackInstaller.DPKG:
-                # 执行下载 QQ 任务
-                curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.deb'], "QQ")
+        elif self.package_installer == PackInstaller.DPKG:
+            # 执行下载 QQ 任务
+            curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.deb'], "QQ")
 
-                # 执行安装 QQ 以及依赖任务
-                long_time_subprocess(['apt', 'install', '-f', '-y', './QQ.deb'], "安装QQ")
-                long_time_subprocess(['apt', 'install', '-f', '-y', 'libnss3'], "安装依赖[libnss3]")
-                long_time_subprocess(['apt', 'install', '-f', '-y', 'libgbm1'], "安装依赖[libgbm1]")
+            # 执行安装 QQ 以及依赖任务
+            long_time_subprocess(['apt-get', 'install', '-f', '-y', './QQ.deb'], "安装QQ")
+            long_time_subprocess(['apt-get', 'install', '-y', 'libnss3'], "安装依赖[libnss3]")
+            long_time_subprocess(['apt-get', 'install', '-y', 'libgbm1'], "安装依赖[libgbm1]")
 
-                # 以下操作是为了解决 libasound2 依赖问题
-                args = ['apt', 'install', '-f', '-y', 'libasound2']
-                if long_time_subprocess(args, "安装依赖[libasound2]", False).returncode != 0:
-                    # 如果安装失败, 则尝试安装 libasound2t64
-                    args = ['apt', 'install', '-f', '-y', 'libasound2t64']
-                    long_time_subprocess(args, "安装依赖[libasound2t64]")
+            # 以下操作是为了解决 libasound2 依赖问题
+            args = ['apt-get', 'install', '-y', 'libasound2']
+            if long_time_subprocess(args, "安装依赖[libasound2]", False).returncode != 0:
+                # 如果安装失败, 则尝试安装 libasound2t64
+                args = ['apt-get', 'install', '-y', 'libasound2t64']
+                long_time_subprocess(args, "安装依赖[libasound2t64]")
 
-                # 移除安装包
-                if call_subprocess(['rm', '-f', 'QQ.deb']).returncode:
-                    _echo(colored('yello', "× 删除安装包失败, 请手动删除"))
+            # 移除安装包
+            if call_subprocess(['rm', '-f', 'QQ.deb']).returncode:
+                _echo(colored('yellow', "× 删除安装包失败, 请手动删除"))
 
-            case _:
-                _echo(colored('red', "未知的包安装器"))
-                sys.exit(1)
+        else:
+            _echo(colored('red', "未知的包安装器"))
+            sys.exit(1)
 
 
 class ShellInstall:
@@ -387,6 +388,9 @@ def main() -> None:
     """
     ## 程序主入口
     """
+    if os.geteuid() != 0:
+        # 检查是否以 root 用户运行
+        sys.exit("请以 root 用户运行此安装程序!")
 
     # 清空终端, 输出 NapCat Logo
     os.system('clear')
