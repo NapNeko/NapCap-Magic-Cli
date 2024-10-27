@@ -6,6 +6,7 @@ import re
 import sys
 import json
 import time
+import curses
 import argparse
 import platform
 import subprocess
@@ -87,7 +88,7 @@ def _echo_logo() -> None:
     ## 绘制一个 Logo
     """
     os.system("clear")
-    _echo(colored("pink", LOGO, bold=True))
+    _echo(LOGO)
 
 
 def _echo(text: str, end: bool = True) -> None:
@@ -272,14 +273,32 @@ class QQ:
         """
         ## 检查 QQ 是否需要更新/安装
         """
-        # TODO 待实现
+        if not self.get_local_version():
+            # 如果获取不到 本地版本 则直接执行安装 QQ 任务
+            self.install()
 
-    def get_local_version(self) -> None:
+        if self.qq_local_version != self.qq_remote_version:
+            # 如果本地版本和远程版本不一致, 则执行更新任务
+            self.install()
+
+    def get_local_version(self) -> bool:
         """
         ## 获取本地 QQ 版本
             - 默认安装路径为 /opt/qq
+
+        ## 返回
+            - bool: 是否安装 QQ
         """
-        # TODO 待实现
+        try:
+            if self.package_installer == PackInstaller.RPM:
+                args = ["rpm", "-q", "--queryformat", "%{VERSION}", "linuxqq"]
+                self.qq_local_version = subprocess.check_output(args).decode().strip().split("-")[-1]
+            elif self.package_installer == PackInstaller.DPKG:
+                self.qq_local_version = subprocess.check_output(["dpkg", "-l", "linuxqq"]).decode().strip().split()[-2]
+            return True
+        except subprocess.CalledProcessError as e:
+            # 执行失败则表示没有安装QQ
+            return False
 
     def install(self) -> None:
         """
@@ -367,7 +386,7 @@ class ShellInstall:
             qq_download_url=self.qq_download_url,
             qq_remote_version=self.qq_remote_version,
         )
-        qq.install()
+        qq.check_installed()
 
     def get_remote_version(self) -> None:
         """
@@ -428,6 +447,47 @@ class DockerInstall:
     """
 
 
+def select_install_method(stdscr) -> argparse.Namespace:
+    """
+    选择安装方式
+    """
+    options = [
+        "Shell     - 本地安装 QQ 等所需组件后安装 NapCat 并启动\n",
+        "Docker    - 本地安装 Docker 后安装 NapCat 镜像并启动\n",
+    ]
+    current_row = 0
+    # 隐藏光标
+    curses.curs_set(0)
+    while True:
+        stdscr.clear()
+        stdscr.addstr(LOGO)
+        stdscr.addstr("请手动选择安装方式(使用键盘 ↑ 和 ↓ 选择, 使用 Enter 确认选择)\n\n")
+
+        for idx, option in enumerate(options):
+            if idx == current_row:
+                stdscr.addstr("   >>> " + option)  # 高亮当前选项
+            else:
+                stdscr.addstr("       " + option)
+
+        stdscr.refresh()
+
+        key = stdscr.getch()
+
+        # 上下键处理
+        if key == curses.KEY_UP and current_row > 0:
+            current_row -= 1
+        elif key == curses.KEY_DOWN and current_row < len(options) - 1:
+            current_row += 1
+        elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
+            break
+
+    # 根据选择设置 args
+    args = argparse.Namespace()
+    args.shell = options[current_row] == "Shell\n"
+    args.docker = options[current_row] == "Docker\n"
+    return args
+
+
 def main() -> None:
     """
     ## 程序主入口
@@ -436,8 +496,6 @@ def main() -> None:
         # 检查是否以 root 用户运行
         sys.exit("请以 root 用户运行此安装程序!")
 
-    # 清空终端, 输出 NapCat Logo
-    os.system("clear")
     _echo_logo()  # 输出 NapCat Logo
     _echo(colored("green", "欢迎使用 NapCat 安装程序!", bold=True))
     _echo("\n")
@@ -450,17 +508,7 @@ def main() -> None:
 
     if not (args := parser.parse_args()).shell and not args.docker:
         # 当用户没有指定安装方式时, 让用户选择安装方式
-        _echo(colored("yellow", "未检测到安装方式参数传入, 请手动选择安装方式\n"))
-        _echo("  > shell")
-        _echo("  > docker")
-        _echo("")
-
-        if input("请选择安装方式(shell/docker)[shell]: ").strip().lower() == "docker":
-            args.docker = True
-        else:
-            args.shell = True
-
-        _echo("\n")
+        args = curses.wrapper(select_install_method)
 
     # 开始安装
     if args.shell:
