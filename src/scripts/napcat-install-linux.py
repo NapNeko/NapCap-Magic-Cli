@@ -127,7 +127,7 @@ def call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, by
         sys.exit(e.returncode)
 
 
-def curl_subprocess(args: list[str], task_name: str) -> subprocess.Popen:
+def curl_subprocess(args: list[str], task_name: str) -> None:
     """
     ## 调用子进程执行 curl 命令
     """
@@ -135,19 +135,10 @@ def curl_subprocess(args: list[str], task_name: str) -> subprocess.Popen:
 
     for line in process.stderr:
         if match := re.search(r'(\d+(\.\d+)?)%', line):
-            # 计算进度
-            arrow = '>' * int(round((float(match.group(1)) / 100.0) * 60) - 1)
-            spaces = '-' * (60 - len(arrow) - 3)
+            # 计算进度条
+            bar = f"[{'>' * int(round((float(match.group(1)) / 100.0) * 60) - 1)}{'-' * (60 - len(arrow) - 3)}]"
             # 打印进度条
-            sys.stdout.write(
-                f"\r  > 正在下载 {task_name} "
-                f"{colored('green', '[')}"
-                f"{colored('green', arrow)}"
-                f"{spaces}"
-                f"{colored('green', ']')} "
-                f"{match.group(1)}%"
-            )
-            sys.stdout.flush()
+            _echo(f"\r  > 正在下载 {task_name} {bar}{match.group(1)}%", end=False)
     # 等待进程完成
     process.wait()
 
@@ -155,8 +146,55 @@ def curl_subprocess(args: list[str], task_name: str) -> subprocess.Popen:
         # 删除进度条, 打印完成信息
         sys.stdout.write("\r" + " " * 100 + "\r")
         _echo(colored('green', f"√ {task_name} 下载完成"))
+    else:
+        # 删除进度条, 打印错误信息
+        _echo(colored('red', f"\n下载 {task_name} 失败:\n"))
+        _echo(colored('red', f"   > Error Code   :   {process.returncode}"))
+        _echo(colored('red', f"   > Download Url :   {args[3]}"))
+        exit(1)
 
-    return process
+
+def long_time_subprocess(args: list[str], task_name: str, error_exit: bool = True) -> subprocess.Popen:
+    """
+    ## 耗时指令执行, 带一个不确定进度进度条显示
+    """
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    while not process.poll():
+        # 向右移动
+        for position in range(1, 42 + 1):
+            bar = '[' + '-' * (position - 1) + '<< < N A P C A T > >>' + '-' * (42 - position) + ']'
+            # 打印进度条
+            _echo(f"\r  > 正在执行 {task_name} {bar}", end=False)
+            time.sleep(0.2)
+
+        # 向左移动
+        for position in range(42, 0, -1):
+            bar = '[' + '-' * (position - 1) + '<< < N A P C A T > >>' + '-' * (42 - position) + ']'
+            # 打印进度条
+            _echo(f"\r  > 正在执行 {task_name} {bar}", end=False)
+            time.sleep(0.2)
+
+    # 确保进程结束
+    process.wait()
+
+    if process.returncode == 0:
+        # 删除进度条, 打印完成信息
+        sys.stdout.write("\r" + " " * 100 + "\r")
+        _echo(colored('green', f"√ 任务 {task_name} 完成"))
+    else:
+        # 删除进度条, 打印错误信息
+        _echo(colored('red', f"\n任务 {task_name} 失败:\n"))
+        _echo(colored('red', f"   > Error Code   :   {process.returncode}"))
+        _echo(colored('red', f"   > Command      :   {' '.join(args)}"))
+        _echo(colored('red', f"   > Stdout       :   {process.stdout.read()}"))
+        _echo(colored('red', f"   > Stderr       :   {process.stderr.read()}"))
+
+    # 如果需要退出, 则退出
+    if error_exit and process.returncode != 0:
+        exit(1)
+    else:
+        return process
 
 
 @dataclasses.dataclass
@@ -166,6 +204,7 @@ class QQ:
     """
     qq_download_url: str = None
     qq_remote_version: str = None
+    qq_local_version: str = None
     package_installer: PackInstaller = None
     package_manager: PackManager = None
 
@@ -179,6 +218,19 @@ class QQ:
 
         if arch in arch_map and self.package_installer in arch_map[arch]:
             self.qq_download_url += arch_map[arch][self.package_installer].value
+
+    def check_installed(self) -> None:
+        """
+        ## 检查 QQ 是否需要更新/安装
+        """
+        # TODO 待实现
+
+    def get_local_version(self) -> None:
+        """
+        ## 获取本地 QQ 版本
+            - 默认安装路径为 /opt/qq
+        """
+        # TODO 待实现
 
     def install(self) -> None:
         """
@@ -202,29 +254,39 @@ class QQ:
         match self.package_installer:
             # 匹配包安装器
             case PackInstaller.RPM:
-                download_args = ['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.rpm']
-                install_args = ['yum', 'localinstall', '-y', './QQ.rpm']
-                install_file_name = 'QQ.rpm'
+                # 执行下载 QQ 任务
+                curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.rpm'], "QQ")
+
+                # 执行安装 QQ 任务
+                long_time_subprocess(['yum', 'localinstall', '-y', './QQ.rpm'], "安装QQ")
+
+                # 移除安装包
+                if call_subprocess(['rm', '-f', 'QQ.rpm']).returncode:
+                    _echo(colored('yello', "× 删除安装包失败, 请手动删除"))
 
             case PackInstaller.DPKG:
-                download_args = ['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.deb']
-                install_args = ['apt', 'install', '-f', '-y', './QQ.deb', 'libnss3', 'libgbm1', 'libasound2']
-                install_file_name = 'QQ.deb'
+                # 执行下载 QQ 任务
+                curl_subprocess(['curl', '-L', '-#', self.qq_download_url, '-o', 'QQ.deb'], "QQ")
+
+                # 执行安装 QQ 以及依赖任务
+                long_time_subprocess(['apt', 'install', '-f', '-y', './QQ.deb'], "安装QQ")
+                long_time_subprocess(['apt', 'install', '-f', '-y', 'libnss3'], "安装依赖[libnss3]")
+                long_time_subprocess(['apt', 'install', '-f', '-y', 'libgbm1'], "安装依赖[libgbm1]")
+
+                # 以下操作是为了解决 libasound2 依赖问题
+                args = ['apt', 'install', '-f', '-y', 'libasound2']
+                if long_time_subprocess(args, "安装依赖[libasound2]", False).returncode != 0:
+                    # 如果安装失败, 则尝试安装 libasound2t64
+                    args = ['apt', 'install', '-f', '-y', 'libasound2t64']
+                    long_time_subprocess(args, "安装依赖[libasound2t64]")
+
+                # 移除安装包
+                if call_subprocess(['rm', '-f', 'QQ.deb']).returncode:
+                    _echo(colored('yello', "× 删除安装包失败, 请手动删除"))
 
             case _:
                 _echo(colored('red', "未知的包安装器"))
                 sys.exit(1)
-
-        # 执行下载安装任务
-        if (process := curl_subprocess(download_args, "QQ")).returncode != 0:
-            _echo(colored('red', f"\n下载 QQ 失败:\n"))
-            _echo(colored('red', f"   > Error Code   :   {process.returncode}"))
-            _echo(colored('red', f"   > Download Url :   {self.qq_download_url}"))
-            sys.exit(1)
-
-        # if call_subprocess(install_args).returncode != 0:
-        #     _echo(colored('red', "安装 QQ 失败"))
-        #     sys.exit(1)
 
 
 class ShellInstall:
