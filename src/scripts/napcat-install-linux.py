@@ -66,14 +66,28 @@ FOREGROUND_COLORS = {
 }
 
 # 定义终端输出 NapCat Install Logo
-LOGO = """\n\n
-    ███╗   ██╗  █████╗  ██████╗   ██████╗  █████╗  ████████╗
-    ████╗  ██║ ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ╚══██╔══╝
-    ██╔██╗ ██║ ███████║ ██████╔╝ ██║      ███████║    ██║   
-    ██║╚██╗██║ ██╔══██║ ██╔═══╝  ██║      ██╔══██║    ██║   
-    ██║ ╚████║ ██║  ██║ ██║      ╚██████╗ ██║  ██║    ██║   
-    ╚═╝  ╚═══╝ ╚═╝  ╚═╝ ╚═╝       ╚═════╝ ╚═╝  ╚═╝    ╚═╝   \n\n\n
+LOGO = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║                                                                              ║
+║           ███╗   ██╗  █████╗  ██████╗   ██████╗  █████╗  ████████╗           ║
+║           ████╗  ██║ ██╔══██╗ ██╔══██╗ ██╔════╝ ██╔══██╗ ╚══██╔══╝           ║
+║           ██╔██╗ ██║ ███████║ ██████╔╝ ██║      ███████║    ██║              ║
+║           ██║╚██╗██║ ██╔══██║ ██╔═══╝  ██║      ██╔══██║    ██║              ║
+║           ██║ ╚████║ ██║  ██║ ██║      ╚██████╗ ██║  ██║    ██║              ║
+║           ╚═╝  ╚═══╝ ╚═╝  ╚═╝ ╚═╝       ╚═════╝ ╚═╝  ╚═╝    ╚═╝              ║
+║                                                                              ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
+
+
+def _echo_logo() -> None:
+    """
+    ## 绘制一个 Logo
+    """
+    os.system("clear")
+    _echo(colored("pink", LOGO, bold=True))
 
 
 def _echo(text: str, end: bool = True) -> None:
@@ -135,21 +149,24 @@ def curl_subprocess(args: list[str], task_name: str) -> None:
     """
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
 
+    # 计算进度条最大长度
+    max_length = 80 - len(f"  > 正在执行 {task_name} ") * 2
+
     for line in process.stderr:
         if match := re.search(r"(\d+(\.\d+)?)%", line):
             # 计算进度
-            arrow = ">" * int(round((float(match.group(1)) / 100.0) * 60) - 1)
-            spaces = "-" * (60 - len(arrow) - 3)
+            arrow = ">" * int(round((float(match.group(1)) / 100.0) * max_length))
+            spaces = "-" * (max_length - len(arrow))
             bar = f"[{arrow}{spaces}]"
             # 打印进度条
-            _echo(f"\r  > 正在下载 {task_name} {bar}{match.group(1)}%", end=False)
+            _echo(f"\r  > 正在执行 {task_name} {bar}{match.group(1)}%", end=False)
     # 等待进程完成
     process.wait()
 
     if process.returncode == 0:
         # 删除进度条, 打印完成信息
-        sys.stdout.write("\r" + " " * 100 + "\r")
-        _echo(colored("green", f"√ {task_name} 下载完成"))
+        sys.stdout.write("\r" + " " * 80 + "\r")
+        _echo(colored("green", f"√ 任务 {task_name} 完成"))
     else:
         # 删除进度条, 打印错误信息
         _echo(colored("red", f"\n下载 {task_name} 失败:\n"))
@@ -158,23 +175,46 @@ def curl_subprocess(args: list[str], task_name: str) -> None:
         exit(1)
 
 
-def long_time_subprocess(args: list[str], task_name: str, error_exit: bool = True) -> subprocess.Popen:
+def long_time_subprocess(
+    args: list[str], task_name: str, error_exit: bool = True, err_echo: bool = True
+) -> subprocess.Popen:
     """
     ## 耗时指令执行, 带一个不确定进度进度条显示
+
+    ## 参数
+        - args: list[str] -> 执行的命令
+        - task_name: str -> 任务名称
+        - error_exit: bool -> 是否在错误时退出
+        - err_echo: bool -> 是否打印错误信息
+
     """
     process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    while process.poll():
+    # 计算进度条最大长度
+    max_length = 80 - len(f"  > 正在执行 {task_name}  ") * 2
+
+    while True:
+        if process.poll() is not None:
+            break
+
         # 向右移动
-        for position in range(1, 42 + 1):
-            bar = "[" + "-" * (position - 1) + "<< < N A P C A T > >>" + "-" * (42 - position) + "]"
+        for position in range(1, max_length + 1):
+
+            if process.poll() is not None:
+                break
+
+            bar = "[" + "-" * (position - 1) + "<NAPCAT>" + "-" * (max_length - position) + "]"
             # 打印进度条
             _echo(f"\r  > 正在执行 {task_name} {bar}", end=False)
             time.sleep(0.2)
 
         # 向左移动
-        for position in range(42, 0, -1):
-            bar = "[" + "-" * (position - 1) + "<< < N A P C A T > >>" + "-" * (42 - position) + "]"
+        for position in range(max_length, 0, -1):
+
+            if process.poll() is not None:
+                break
+
+            bar = "[" + "-" * (position - 1) + "<NAPCAT>" + "-" * (max_length - position) + "]"
             # 打印进度条
             _echo(f"\r  > 正在执行 {task_name} {bar}", end=False)
             time.sleep(0.2)
@@ -184,15 +224,19 @@ def long_time_subprocess(args: list[str], task_name: str, error_exit: bool = Tru
 
     if process.returncode == 0:
         # 删除进度条, 打印完成信息
-        sys.stdout.write("\r" + " " * 100 + "\r")
+        sys.stdout.write("\r" + " " * 80 + "\r")
         _echo(colored("green", f"√ 任务 {task_name} 完成"))
-    else:
+    elif process.returncode != 0 and err_echo:
         # 删除进度条, 打印错误信息
-        _echo(colored("red", f"\n任务 {task_name} 失败:\n"))
+        sys.stdout.write("\r" + " " * 80 + "\r")
+        _echo(colored("red", f"\n× 任务 {task_name} 失败:\n"))
         _echo(colored("red", f"   > Error Code   :   {process.returncode}"))
         _echo(colored("red", f"   > Command      :   {' '.join(args)}"))
         _echo(colored("red", f"   > Stdout       :   {process.stdout.read()}"))
         _echo(colored("red", f"   > Stderr       :   {process.stderr.read()}"))
+
+    # 如果不打印错误信息则清空进度条
+    sys.stdout.write("\r" + " " * 80 + "\r")
 
     # 如果需要退出, 则退出
     if error_exit and process.returncode != 0:
@@ -255,7 +299,7 @@ class QQ:
         # 判断包安装器
         if self.package_installer == PackInstaller.RPM:
             # 执行下载 QQ 任务
-            curl_subprocess(["curl", "-L", "-#", self.qq_download_url, "-o", "QQ.rpm"], "QQ")
+            curl_subprocess(["curl", "-L", "-#", self.qq_download_url, "-o", "QQ.rpm"], "下载QQ")
 
             # 执行安装 QQ 任务
             long_time_subprocess(["yum", "localinstall", "-y", "./QQ.rpm"], "安装QQ")
@@ -266,7 +310,7 @@ class QQ:
 
         elif self.package_installer == PackInstaller.DPKG:
             # 执行下载 QQ 任务
-            curl_subprocess(["curl", "-L", "-#", self.qq_download_url, "-o", "QQ.deb"], "QQ")
+            curl_subprocess(["curl", "-L", "-#", self.qq_download_url, "-o", "QQ.deb"], "下载QQ")
 
             # 执行安装 QQ 以及依赖任务
             long_time_subprocess(["apt-get", "install", "-f", "-y", "./QQ.deb"], "安装QQ")
@@ -275,7 +319,7 @@ class QQ:
 
             # 以下操作是为了解决 libasound2 依赖问题
             args = ["apt-get", "install", "-y", "libasound2"]
-            if long_time_subprocess(args, "安装依赖[libasound2]", False).returncode != 0:
+            if long_time_subprocess(args, "安装依赖[libasound2]", False, False).returncode != 0:
                 # 如果安装失败, 则尝试安装 libasound2t64
                 args = ["apt-get", "install", "-y", "libasound2t64"]
                 long_time_subprocess(args, "安装依赖[libasound2t64]")
@@ -394,7 +438,7 @@ def main() -> None:
 
     # 清空终端, 输出 NapCat Logo
     os.system("clear")
-    _echo(colored("pink", LOGO, bold=True))  # 输出 NapCat Logo
+    _echo_logo()  # 输出 NapCat Logo
     _echo(colored("green", "欢迎使用 NapCat 安装程序!", bold=True))
     _echo("\n")
 
