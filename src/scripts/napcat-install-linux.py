@@ -823,7 +823,7 @@ class DockerInstall:
             key = stdscr.getch()  # 获取用户的按键
 
             # 检查按键是否是回车键
-            if key == ord("\n") or key == 10:  # 回车键的编码
+            if key in [curses.KEY_ENTER, 10, 13]:  # 回车键的编码
                 # 校验输入是否为非空的数字序列
                 if input_str.replace(" ", "").replace(",", "").isdigit():
                     return input_str  # 返回有效的输入字符串
