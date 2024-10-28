@@ -402,9 +402,17 @@ class ShellInstall:
     def __init__(self):
         # 定义路径
         self.base_path: Path = Path().cwd()
+
+        # QQ 相关路径
         self.qq_install_path: Path = Path("/opt/QQ")
-        self.napcat_install_path: Path = self.qq_install_path / "resources" / "app" / "app_launcher" / "NapCat"
+        self.qq_app_path: Path = self.qq_install_path / "resources" / "app"
+        self.qq_app_launcher_path: Path = self.qq_install_path / "resources" / "app" / "app_launcher"
+
+        # NapCat 相关路径
+        self.napcat_install_path: Path = self.qq_install_path / "NapCat"
+        self.napcat_packet_install_path: Path =  self.qq_install_path / "NapCat.Packet"
         self.package_path: Path = self.qq_install_path / "resources" / "app" / "package.json"
+        self.napcat_config_path: Path = self.napcat_install_path / "config" / "napcat.json"
 
         # 拉远程版本
         self.get_remote_version()
@@ -420,6 +428,7 @@ class ShellInstall:
         ]
         # 定义 NapCat 下载链接
         self.napcat_download_url = "https://github.com/NapNeko/NapCatQQ/releases/latest/download/NapCat.Shell.zip"
+        self.napcat_packet_download_url = "https://github.com/NapNeko/NapCatQQ/releases/latest/download/napcat.packet."
 
         # 清空终端, 输出 NapCat Logo
         _echo_logo()  # 输出 NapCat Logo
@@ -496,7 +505,7 @@ class ShellInstall:
             item.chmod(0o777)
 
         # 写入 loadNapCat.js
-        with open(self.napcat_install_path.parent.parent / "loadNapCat.js", "w") as file:
+        with open(self.qq_app_path / "loadNapCat.js", "w") as file:
             file.write(f"(async () => {{await import('file:///{self.napcat_install_path}/napcat.mjs');}})();")
 
         # 移除文件
@@ -507,21 +516,11 @@ class ShellInstall:
             data = json.load(file)
 
         # 修改数据
-        data["main"] = "loadNapCat.js"
+        data["main"] = "./loadNapCat.js"
 
         # 写入修改后的数据
         with open(self.package_path, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4)
-
-        # 安装完成, 输出信息
-        _echo_logo()
-        _echo(f"安装成功 NapCat " f"[{colored('yellow', self.napcat_remote_version)}] ")
-        _echo("")
-        _echo("安装完成，请输入 xvfb-run -a qq --no-sandbox 命令启动")
-        _echo("保持后台运行 请输入 screen -dmS napcat bash -c xvfb-run -a qq --no-sandbox")
-        _echo("后台快速登录 请输入 screen -dmS napcat bash -c xvfb-run -a qq --no-sandbox -q QQ号码")
-        _echo(f"NapCat 安装位置 {self.napcat_install_path}")
-        _echo("PS: 您可以随时使用screen -r napcat来进入后台进程并使用ctrl + a + d离开(离开不会关闭后台进程)")
 
     def download_napcat(self) -> None:
         """
@@ -546,6 +545,93 @@ class ShellInstall:
             else:
                 _echo(colored("red", "× 下载 NapCat 失败"))
                 exit(1)
+
+    def check_packet(self) -> None:
+        """
+        ## 检查 packet 包
+        """
+        # 检查路径是否存在, 存在则表示已经安装过, 跳过安装
+        if self.napcat_packet_install_path.exists():
+            return
+
+        # 创建路径
+        self.napcat_packet_install_path.mkdir()
+
+        # 下载 packet 包
+        self.download_packet()
+
+        # 安装 packet 包
+        self.install_packet()
+
+        # 设置权限
+        (self.napcat_packet_install_path / "napcat.packet").chmod(0o777)
+
+    def install_packet(self) -> None:
+        """
+        ## 安装 packet 包
+        """
+        # 编辑 NapCat 的默认配置文件
+        with open(str(self.napcat_config_path), "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        # 修改数据
+        data["packetServer"] = "127.0.0.1:8086"
+
+        # 写入修改后的数据
+        with open(str(self.napcat_config_path), "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+
+        # 设置 packet 可执行权限
+
+
+    def download_packet(self) -> None:
+        """
+        ## 下载 packet 包
+        """
+        # 检查系统架构
+        if arch == "x86_64" or arch == "amd64":
+            self.napcat_packet_download_url += "linux"
+        elif arch == "aarch64" or arch == "arm64":
+            self.napcat_packet_download_url += "arm"
+
+        # 下载 packet 包
+        args = [
+            "curl",  # 使用 curl 命令
+            "-L",  # 跟随重定向
+            "-#",  # 显示进度条
+            "--connect-timeout",  # 连接超时时间
+            "5",  # 5 秒
+            self.napcat_packet_download_url,  # 下载链接
+            "-o",  # 输出文件
+            f"{self.napcat_packet_install_path}/napcat.packet",  # 输出文件路径
+        ]
+
+        if curl_subprocess(args, "下载Packet", False, False).returncode != 0:
+            # 如果下载失败, 则尝试使用代理下载
+            for proxy in self.proxy_list:
+                args[5] = proxy + self.napcat_packet_download_url
+                if curl_subprocess(args, f"重试下载Packet[代理]", False, False).returncode == 0:
+                    return
+            else:
+                _echo(colored("red", "× 下载 Packet 失败"))
+                exit(1)
+
+    def install_over(self) -> None:
+        """
+        ## 安装完成
+        """
+        _echo_logo()  # 输出 NapCat Logo
+        _echo("\n")
+        _echo(f"{' NapCat 启动方法 '.center(76, '═')}\n")
+        _echo("  前台直接启动 请输入 \n    > xvfb-run -a qq --no-sandbox\n")
+        _echo("  保持后台运行 请输入 \n    > screen -dmS napcat bash -c xvfb-run -a qq --no-sandbox -q QQ号\n")
+        _echo("  PS: 您可以随时使用screen -r napcat来进入后台进程并使用ctrl + a + d离开\n\n")
+        _echo(f"{' NapCat.Packet 启动方法 '.center(76, '═')}\n")
+        _echo(f"  前台直接启动 请输入 \n    > {self.napcat_packet_install_path}/napcat.packet\n")
+        _echo(f"  保持后台运行 请输入 \n    > screen -dmS napcat bash -c {self.napcat_packet_install_path}/napcat.packet\n")
+        _echo("\n")
+        _echo(f"{' NapCat 安装完成 '.center(76, '═')}")
+
 
     def get_local_version(self) -> None:
         """
@@ -685,8 +771,11 @@ def main() -> None:
     if args.shell:
         # 使用 shell 安装
         shell_install = ShellInstall()
-        shell_install.install_qq()
-        shell_install.check_napcat()
+        # shell_install.install_qq()
+        # shell_install.check_napcat()
+        # shell_install.check_packet()
+        shell_install.install_over()
+
     elif args.docker:
         # 使用 Docker 安装
         _echo(colored("green", "开始使用 Docker 安装 NapCat"))
