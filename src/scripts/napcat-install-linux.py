@@ -771,9 +771,9 @@ def main() -> None:
     if args.shell:
         # 使用 shell 安装
         shell_install = ShellInstall()
-        # shell_install.install_qq()
-        # shell_install.check_napcat()
-        # shell_install.check_packet()
+        shell_install.install_qq()
+        shell_install.check_napcat()
+        shell_install.check_packet()
         shell_install.install_over()
 
     elif args.docker:
