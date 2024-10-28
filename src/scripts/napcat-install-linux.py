@@ -132,7 +132,7 @@ def colored(color: str, text: str, bold: bool = False) -> str:
     return "\x1b[{}m{}\x1b[0m".format(";".join(map(str, codes)), text)
 
 
-def call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, bytes, bytes]:
+def run_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, bytes, bytes]:
     """
     ## 调用子进程执行命令
     """
@@ -147,6 +147,13 @@ def call_subprocess(args: list[str]) -> subprocess.CompletedProcess[str, int, by
         _echo(colored("red", f"   > Stdout       :   {e.stdout}"))
         _echo(colored("red", f"   > Stderr       :   {e.stderr}"))
         sys.exit(e.returncode)
+
+
+def call_subprocess(args: list[str]) -> subprocess.Popen:
+    """
+    ## 调用子进程执行命令
+    """
+    return subprocess.call(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def curl_subprocess(
@@ -267,6 +274,43 @@ def long_time_subprocess(
         return process
 
 
+def pull_docker_subprocess(args: list[str]):
+    """
+    ## 拉取 Docker 镜像
+    """
+    # 输出原有信息
+    _echo_logo()
+    _echo(f"正在安装 NapCat ({colored('green', 'Docker')})\n")
+    _echo(colored("green", "√ 检测到 Docker 已安装"))
+    _echo("  > 正在拉取镜像")
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+
+    for line in process.stderr:
+        # 输出原有信息
+        _echo_logo()
+        _echo(f"正在安装 NapCat ({colored('green', 'Docker')})\n")
+        _echo(colored("green", "√ 检测到 Docker 已安装"))
+        _echo("  > 正在拉取镜像")
+        _echo(f"    - {line.strip()}")
+
+    # 等待进程完成
+    process.wait()
+
+    if process.returncode == 0:
+        _echo_logo()
+        _echo(f"正在安装 NapCat ({colored('green', 'Docker')})\n")
+        _echo(colored("green", "√ 检测到 Docker 已安装"))
+        _echo(colored("green", "√ 任务 拉取镜像 完成"))
+    elif process.returncode != 0:
+        _echo_logo()
+        _echo(f"正在安装 NapCat ({colored('green', 'Docker')})\n")
+        _echo(colored("red", f"\n× 任务 拉取镜像 失败:\n"))
+        _echo(colored("red", f"   > Error Code   :   {process.returncode}"))
+        _echo(colored("red", f"   > Command      :   {' '.join(args)}"))
+        _echo(colored("red", f"   > Stdout       :   {process.stdout.read()}"))
+        _echo(colored("red", f"   > Stderr       :   {process.stderr.read()}"))
+
+
 @dataclasses.dataclass
 class QQ:
     """
@@ -347,7 +391,7 @@ class QQ:
             long_time_subprocess(["yum", "localinstall", "-y", "./QQ.rpm"], "安装QQ")
 
             # 移除安装包
-            if call_subprocess(["rm", "-f", "QQ.rpm"]).returncode:
+            if run_subprocess(["rm", "-f", "QQ.rpm"]).returncode:
                 _echo(colored("yellow", "× 删除安装包失败, 请手动删除"))
 
         elif self.package_installer == PackInstaller.DPKG:
@@ -368,7 +412,7 @@ class QQ:
                 long_time_subprocess(args, "安装依赖[libasound2t64]")
 
             # 移除安装包
-            if call_subprocess(["rm", "-f", "QQ.deb"]).returncode:
+            if run_subprocess(["rm", "-f", "QQ.deb"]).returncode:
                 _echo(colored("yellow", "× 删除安装包失败, 请手动删除"))
 
         else:
@@ -410,7 +454,7 @@ class ShellInstall:
 
         # NapCat 相关路径
         self.napcat_install_path: Path = self.qq_install_path / "NapCat"
-        self.napcat_packet_install_path: Path =  self.qq_install_path / "NapCat.Packet"
+        self.napcat_packet_install_path: Path = self.qq_install_path / "NapCat.Packet"
         self.package_path: Path = self.qq_install_path / "resources" / "app" / "package.json"
         self.napcat_config_path: Path = self.napcat_install_path / "config" / "napcat.json"
 
@@ -489,7 +533,7 @@ class ShellInstall:
             # 如果存在则代表只是更新, 删除除了 config 以外的所有
             for file in self.napcat_install_path.iterdir():
                 if file.name != "config":
-                    call_subprocess(["rm", "-rf", file])
+                    run_subprocess(["rm", "-rf", file])
 
         # 解压 NapCat
         with zipfile.ZipFile(f"{self.base_path}/NapCat.zip", "r") as zip_ref:
@@ -583,7 +627,6 @@ class ShellInstall:
 
         # 设置 packet 可执行权限
 
-
     def download_packet(self) -> None:
         """
         ## 下载 packet 包
@@ -628,10 +671,11 @@ class ShellInstall:
         _echo("  PS: 您可以随时使用screen -r napcat来进入后台进程并使用ctrl + a + d离开\n\n")
         _echo(f"{' NapCat.Packet 启动方法 '.center(76, '═')}\n")
         _echo(f"  前台直接启动 请输入 \n    > {self.napcat_packet_install_path}/napcat.packet\n")
-        _echo(f"  保持后台运行 请输入 \n    > screen -dmS napcat bash -c {self.napcat_packet_install_path}/napcat.packet\n")
+        _echo(
+            f"  保持后台运行 请输入 \n    > screen -dmS napcat bash -c {self.napcat_packet_install_path}/napcat.packet\n"
+        )
         _echo("\n")
         _echo(f"{' NapCat 安装完成 '.center(76, '═')}")
-
 
     def get_local_version(self) -> None:
         """
@@ -650,7 +694,7 @@ class ShellInstall:
         """
 
         # 获取 NapCat 相关内容
-        if (napcat := call_subprocess(["curl", "-s", "https://nclatest.znin.net/"])).returncode != 0:
+        if (napcat := run_subprocess(["curl", "-s", "https://nclatest.znin.net/"])).returncode != 0:
             _echo(colored("red", "获取 NapCat 版本失败"))
             print(napcat)
             exit(1)
@@ -658,7 +702,7 @@ class ShellInstall:
         self.napcat_remote_version = json.loads(napcat.stdout.decode().strip())["tag_name"]
 
         # 获取 QQ 相关内容
-        if (qq := call_subprocess(["curl", "-s", "https://nclatest.znin.net/get_qq_ver"])).returncode != 0:
+        if (qq := run_subprocess(["curl", "-s", "https://nclatest.znin.net/get_qq_ver"])).returncode != 0:
             _echo(colored("red", "获取 QQ 版本失败"))
             exit(1)
 
@@ -673,9 +717,9 @@ class ShellInstall:
         """
         ## 检测系统包管理器
         """
-        if call_subprocess(["which", "apt-get"]).returncode == 0:
+        if run_subprocess(["which", "apt-get"]).returncode == 0:
             self.package_manager = PackManager.APT_GET
-        elif call_subprocess(["which", "yum"]).returncode == 0:
+        elif run_subprocess(["which", "yum"]).returncode == 0:
             self.package_manager = PackManager.YUM
         else:
             _echo(colored("red", "未检测到系统包管理器"))
@@ -687,9 +731,9 @@ class ShellInstall:
         """
         ## 检测软件包安装器
         """
-        if call_subprocess(["which", "dpkg"]).returncode == 0:
+        if run_subprocess(["which", "dpkg"]).returncode == 0:
             self.package_installer = PackInstaller.DPKG
-        elif call_subprocess(["which", "rpm"]).returncode == 0:
+        elif run_subprocess(["which", "rpm"]).returncode == 0:
             self.package_installer = PackInstaller.RPM
         else:
             _echo(colored("red", "未检测到包安装器"))
@@ -702,6 +746,309 @@ class DockerInstall:
     """
     ## Docker 方式安装
     """
+
+    def __init__(self) -> None:
+        # 清空终端, 输出 NapCat Logo
+        _echo_logo()
+        _echo(f"正在安装 NapCat ({colored('green', 'Docker')})")
+        _echo("")
+
+    @staticmethod
+    def check_docker():
+        """
+        ## 检查 docker 是否安装
+        """
+        return call_subprocess(["which", "docker"]) == 0
+
+    def install_docker(self):
+        """
+        ## 进行 Docker 安装
+        """
+        if self.check_docker():
+            _echo(colored("green", "√ 检测到 Docker 已安装"))
+            return
+
+        # 输出 NapCat Logo
+        _echo_logo()
+        _echo(f"正在安装 Docker ")
+        _echo("")
+
+        # 安装 Docker
+        get_install_sh_args = [
+            "curl",
+            "-fsSL",
+            "https://nclatest.znin.net/docker_install_script",
+            "-o",
+            "get-docker.sh",
+        ]
+        if run_subprocess(get_install_sh_args).returncode != 0:
+            _echo(colored("red", "× 下载 Docker 安装脚本失败"))
+            exit(1)
+
+        (Path().cwd() / "get-docker.sh").chmod(0o777)
+
+        long_time_subprocess(["sh", "get-docker.sh"], "安装Docker")
+
+    def input_config(self):
+        """
+        ## 让用户输入配置信息
+        """
+        # 获取参数
+        self.qq: str = curses.wrapper(self.input_qq)
+        self.mod: str = curses.wrapper(self.select_mode)
+        self.proxy: str = curses.wrapper(self.select_proxy)
+        self.commands: list[str] = curses.wrapper(self.confirm_command)
+
+        # 执行安装命令
+        pull_docker_subprocess(self.commands)
+
+    @staticmethod
+    def input_qq(stdscr) -> int:
+        """
+        ## 让用户输入 QQ 信息
+        """
+        curses.curs_set(1)  # 显示光标
+        stdscr.clear()
+        stdscr.refresh()
+
+        input_str = ""  # 用于保存用户输入的缓冲区
+
+        while True:
+            stdscr.clear()
+            stdscr.addstr(LOGO)
+            stdscr.addstr("正在安装 NapCat (Docker)\n\n")
+
+            stdscr.addstr("请输入QQ号，然后按回车确认: \n\n  -> ")
+            stdscr.addstr(input_str)  # 显示当前输入内容
+            key = stdscr.getch()  # 获取用户的按键
+
+            # 检查按键是否是回车键
+            if key == ord("\n") or key == 10:  # 回车键的编码
+                # 校验输入是否为非空的数字序列
+                if input_str.replace(" ", "").replace(",", "").isdigit():
+                    return input_str  # 返回有效的输入字符串
+                else:
+                    stdscr.addstr(2, 0, "输入无效，请确保仅包含数字")
+                    input_str = ""  # 清空输入缓冲区，提示重新输入
+
+            elif key in (curses.KEY_BACKSPACE, 8, 127):  # 支持退格键删除字符
+                input_str = input_str[:-1]
+
+            elif 48 <= key <= 57:  # 允许数字输入
+                input_str += chr(key)  # 将字符追加到输入缓冲区中
+
+            # 每次更新输入行
+            stdscr.move(1, 0)
+            stdscr.addstr(1, 0, input_str)  # 显示更新后的输入内容
+
+    def select_mode(self, stdscr) -> str:
+        """
+        ## 选择模式 （ws/reverse_ws/reverse_http）
+        """
+        options = [
+            "Websocket           - 使用 Websocket         模式\n",
+            "Reverse Websocket   - 使用 Reverse Websocket 模式\n",
+            "Reverse Http        - 使用 Reverse Http      模式\n",
+        ]
+        current_row = 0
+        # 隐藏光标
+        curses.curs_set(0)
+
+        while True:
+            stdscr.clear()
+            stdscr.addstr(LOGO)
+            stdscr.addstr("正在安装 NapCat (Docker)\n\n")
+            stdscr.addstr(f"√ QQ  :  {self.qq}\n\n", curses.COLOR_GREEN)
+
+            stdscr.addstr("请手动选择安装方式(使用键盘 ↑ 和 ↓ 选择, 使用 Enter 确认选择)\n\n")
+
+            for idx, option in enumerate(options):
+                if idx == current_row:
+                    stdscr.addstr("   >>> " + option)  # 高亮当前选项
+                else:
+                    stdscr.addstr("       " + option)
+
+            stdscr.refresh()
+
+            key = stdscr.getch()
+
+            # 上下键处理
+            if key == curses.KEY_UP and current_row > 0:
+                current_row -= 1
+            elif key == curses.KEY_DOWN and current_row < len(options) - 1:
+                current_row += 1
+            elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
+                break
+
+        # 返回选项
+        return (
+            options[current_row]
+            .lower()
+            .replace("   >>> ", "")
+            .split("-")[0]
+            .strip()
+            .replace(" ", "_")
+            .replace("websocket", "ws")
+        )
+
+    @staticmethod
+    def select_proxy(stdscr) -> str:
+        """
+        ## 选择代理
+        """
+        options = [
+            "docker.1panel.dev       - 使用第三方代理(自行检查可用性)\n",
+            "dockerpull.com          - 使用第三方代理(自行检查可用性)\n",
+            "dockerproxy.cn          - 使用第三方代理(自行检查可用性)\n",
+            "docker.agsvpt.work      - 使用第三方代理(自行检查可用性)\n",
+            "docker.agsv.top         - 使用第三方代理(自行检查可用性)\n",
+            "docker.registry.cyou    - 使用第三方代理(自行检查可用性)\n",
+            "hub.docker.com          - 不使用代理\n",
+        ]
+
+        proxy_arr = [
+            "docker.1panel.dev/",
+            "dockerpull.com/",
+            "dockerproxy.cn/",
+            "docker.agsvpt.work/",
+            "docker.agsv.top/",
+            "docker.registry.cyou/",
+            "",
+        ]
+
+        current_row = 0
+        # 隐藏光标
+        curses.curs_set(0)
+
+        while True:
+            stdscr.clear()
+            stdscr.addstr(LOGO)
+            stdscr.addstr("正在安装 NapCat (Docker)\n\n")
+
+            stdscr.addstr("请手动选择代理(使用键盘 ↑ 和 ↓ 选择, 使用 Enter 确认选择)\n\n")
+
+            for idx, option in enumerate(options):
+                if idx == current_row:
+                    stdscr.addstr("   >>> " + option)  # 高亮当前选项
+                else:
+                    stdscr.addstr("       " + option)
+
+            stdscr.refresh()
+
+            key = stdscr.getch()
+
+            # 上下键处理
+            if key == curses.KEY_UP and current_row > 0:
+                current_row -= 1
+            elif key == curses.KEY_DOWN and current_row < len(options) - 1:
+                current_row += 1
+            elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
+                break
+
+        # 返回选项
+        return proxy_arr[current_row]
+
+    def confirm_command(self, stdscr):
+        """
+        ## 确认命令
+        """
+        docker_cmd_1 = ["docker", "run", "-d", "-e", f"ACCOUNT={self.qq}"]
+        docker_cmd_2 = [
+            "--privileged",
+            "--name",
+            "napcat",
+            "--restart=always",
+            f"{self.proxy}mlikiowa/napcat-docker:latest",
+        ]
+
+        docker_ws = [
+            *docker_cmd_1,
+            "-e",
+            "WS_ENABLE=true",
+            "-e",
+            "NAPCAT_GID=$(id -g)",
+            "-e",
+            "NAPCAT_UID=$(id -u)",
+            "-p",
+            "3001:3001",
+            "-p",
+            "6099:6099",
+            *docker_cmd_2,
+        ]
+        docker_reverse_ws = [
+            *docker_cmd_1,
+            "-e",
+            "WSR_ENABLE=true",
+            "-e",
+            "NAPCAT_GID=$(id -g)",
+            "-e",
+            "NAPCAT_UID=$(id -u)",
+            "-e",
+            "WS_URLS='[]'",
+            "-p",
+            "6099:6099",
+            *docker_cmd_2,
+        ]
+        docker_reverse_http = [
+            *docker_cmd_1,
+            "-e",
+            "HTTP_ENABLE=true",
+            "-e",
+            "NAPCAT_GID=$(id -g)",
+            "-e",
+            "NAPCAT_UID=$(id -u)",
+            "-e",
+            "HTTP_POST_ENABLE=true",
+            "-e",
+            "HTTP_URLS='[]'",
+            "-p",
+            "3000:3000",
+            "-p",
+            "6099:6099",
+            *docker_cmd_2,
+        ]
+
+        commands = {
+            "ws": docker_ws,
+            "reverse_ws": docker_reverse_ws,
+            "reverse_http": docker_reverse_http,
+        }
+        options = ["确定   - 确认使用此命令\n", "取消   - 取消使用此命令并退出\n"]
+
+        current_row = 0
+        # 隐藏光标
+        curses.curs_set(0)
+
+        while True:
+            stdscr.clear()
+            stdscr.addstr(LOGO)
+            stdscr.addstr("正在安装 NapCat (Docker)\n\n")
+            stdscr.addstr(" ".join(commands[self.mod]) + "\n\n")
+            stdscr.addstr("请确定是否使用此命令(使用键盘 ↑ 和 ↓ 选择, 使用 Enter 确认选择)\n\n")
+
+            for idx, option in enumerate(options):
+                if idx == current_row:
+                    stdscr.addstr("   >>> " + option)  # 高亮当前选项
+                else:
+                    stdscr.addstr("       " + option)
+
+            stdscr.refresh()
+
+            key = stdscr.getch()
+
+            # 上下键处理
+            if key == curses.KEY_UP and current_row > 0:
+                current_row -= 1
+            elif key == curses.KEY_DOWN and current_row < len(options) - 1:
+                current_row += 1
+            elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
+                break
+
+        if current_row == 0:
+            return commands[self.mod]
+        else:
+            _echo(colored("red", "用户取消安装"))
+            exit(0)
 
 
 def select_install_method(stdscr) -> argparse.Namespace:
@@ -778,7 +1125,9 @@ def main() -> None:
 
     elif args.docker:
         # 使用 Docker 安装
-        _echo(colored("green", "开始使用 Docker 安装 NapCat"))
+        docker_install = DockerInstall()
+        docker_install.install_docker()
+        docker_install.input_config()
 
 
 if __name__ == "__main__":
