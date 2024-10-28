@@ -841,8 +841,6 @@ class DockerInstall:
             stdscr.move(1, 0)
             stdscr.addstr(1, 0, input_str)  # 显示更新后的输入内容
 
-            time.sleep(0.3)
-
     def select_mode(self, stdscr) -> str:
         """
         ## 选择模式 （ws/reverse_ws/reverse_http）
@@ -881,8 +879,6 @@ class DockerInstall:
                 current_row += 1
             elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
                 break
-
-            time.sleep(0.3)
 
         # 返回选项
         return (
@@ -948,8 +944,6 @@ class DockerInstall:
                 current_row += 1
             elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
                 break
-
-            time.sleep(0.3)
 
         # 返回选项
         return proxy_arr[current_row]
@@ -1050,8 +1044,6 @@ class DockerInstall:
             elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
                 break
 
-            time.sleep(0.3)
-
         if current_row == 0:
             return commands[self.mod]
         else:
@@ -1092,8 +1084,6 @@ def select_install_method(stdscr) -> argparse.Namespace:
             current_row += 1
         elif key in [curses.KEY_ENTER, 10, 13]:  # Enter键
             break
-
-        time.sleep(0.3)
 
     # 根据选择设置 args
     args = argparse.Namespace()
